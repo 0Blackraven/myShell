@@ -5,8 +5,8 @@ use std::path::Path;
 use std::env::{current_dir, set_current_dir, home_dir};
 use std::process::Command;
 
+const SHELL_COMMANDS: [&str; 5] = ["echo", "type", "exit", "cd", "pwd"];
 fn main() {
-    const SHELL_COMMANDS: [&str; 5] = ["echo", "type", "exit", "cd", "pwd"];
     loop {
         print!("$ ");
         io::stdout().flush().unwrap();
@@ -22,80 +22,96 @@ fn main() {
                 index = num;
             }
         }
-        let args: &str = &command.split_off(index);
+        let mut args: Vec<String> = Vec::new();
+        
         match command.trim() {
-            "" => {
-                print!("\n");  
-            },
-            "exit" => {
-                print!("{}\n", command.trim());
-                return;
-            },
-            "echo" => {
-                print!("{}\n", args.trim());
-            },
-            "type" => {
-                if args.trim() == ""{ 
-                    print!("Not a valid command\n");
-                } else if SHELL_COMMANDS.contains(&args.trim()) {
-                    print!("{} is a shell builtin\n", args.trim());
-                } else if let Some(path) = find_executable_in_path(&args.trim()) {
-                    print!("{} is {}\n", args.trim(), path.display()); // this is third party way
-                } else {
-                    print!("{}: not found \n", args.trim());
-                }
-            },
-            "pwd" =>{
-                if args != "" {
-                    print!("{} {}: Not a valid command\n", command.trim(), args.trim());
-                }else{
-                    let path_result: Result<std::path::PathBuf, io::Error> = std::env::current_dir();
-                    match path_result{
-                        Err(e) => print!("Not Found Error: {}\n",e),
-                        Ok(path_buf)=> print!("{}\n",path_buf.display())
-                    };
-                }
-            },
-            "cd" =>{
-                match args.trim() {
-                 ".." =>{
-                    let path = current_dir().unwrap();
-                    let path_parent = path.parent().unwrap(); // handle the case when the current dir is the root
-                    let _result = set_current_dir(path_parent);
-                 },
-                 "" =>{
-                    let root = Path::new("/");
-                    let _result = set_current_dir(root);
-                 },
-                 "~" =>{
-                    let path = home_dir().expect("sorry cannot find your home dir");
-                    let _result = set_current_dir(path);
-                 },
-                 _ => {
-                    let path = Path::new(args.trim());
-                    let is_path_correct = path.try_exists().expect("Can't check existence of provided file");
-                    if is_path_correct {
-                        let _result = set_current_dir(path);                        
-                    } else {
-                        println!("{}: {}: No such file or directory",command.trim(), args.trim());
-                    }
-                 }   
-                }
-            }
-            _ =>{
-                if let Some(_path) = find_executable_in_path(&command.trim()) {
-                    // print!("Executable file detected");
-                    let arguments: &Vec<&str> = &args.trim().split_whitespace().collect();
-                    let mut process = Command::new(command.trim())
-                        .args(arguments)
-                        .spawn()
-                        .unwrap();
+            "" => print!("\n"),
+            "exit" => break,
+            "echo" => echo_handler(&args),
+            "type" => type_handler(&args),
+            "pwd" => pwd_handler(&args, &command),
+            "cd" => cd_handler(&args, &command),
+            _ => general_handler(&args, &command),
+        }
+    }
+}
 
-                    let _status = process.wait().unwrap();
-                } else {
-                    print!("{}: command not found \n", command.trim());
-                }
+fn echo_handler(args: &Vec<String>) {
+    for arg in args {
+        print!("{} ",arg);
+    }
+    println!();
+    return;
+}
+
+fn type_handler(args: &Vec<String>) {
+    if args.is_empty() {
+        println!("Not a valid command");
+    } else {
+        for arg in args {
+            if SHELL_COMMANDS.contains(&arg.as_str()) {
+                println!("{} is a shell builtin", arg);
+            } else if let Some(path) = find_executable_in_path(&arg) {
+                println!("{} is {}", arg, path.display()); // this is third party way
+            } else {
+                println!("{}: not found", arg);
             }
         }
     }
+    return;
+}
+
+fn pwd_handler(args: &Vec<String>, command: &str) {
+    if !args.is_empty() {
+        println!("{}: Invalid arguments provided", command.trim());
+    } else {
+        let path_result: Result<std::path::PathBuf, io::Error> = std::env::current_dir();
+        match path_result {
+            Err(e) => println!("Not Found Error: {}", e),
+            Ok(path_buf) => println!("{}", path_buf.display()),
+        };
+    }
+    return;
+}
+
+fn cd_handler(args: &Vec<String>, command: &str) {
+    if args.len() >= 2 {
+        println!("{}: Too many arguments", command.trim());
+        return;
+    } else {
+        match args[0].as_str() {
+            "" => {
+                let root = Path::new("/");
+                let _result = set_current_dir(root);
+                return;
+            }
+            "~" => {
+                let path = home_dir().expect("sorry cannot find your home dir");
+                let _result = set_current_dir(path);
+                return;
+            }
+            _ => {
+                let path = Path::new(&args[0]);
+                let is_path_correct = path
+                    .try_exists()
+                    .expect("Can't check existence of provided file");
+                if is_path_correct {
+                    let _result = set_current_dir(path);
+                } else {
+                    println!("{}: {}: No such file or directory", command.trim(), args[0]);
+                }
+                return;
+            }
+        }
+    }
+}
+
+fn general_handler(args: &Vec<String>, command: &str) {
+    if let Some(_path) = find_executable_in_path(&command.trim()) {
+        let mut process = Command::new(command.trim()).args(args).spawn().unwrap();
+        let _status = process.wait().unwrap();
+    } else {
+        println!("{}: command not found", command.trim());
+    }
+    return;
 }
