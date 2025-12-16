@@ -7,31 +7,40 @@ use std::process::Command;
 
 const SHELL_COMMANDS: [&str; 5] = ["echo", "type", "exit", "cd", "pwd"];
 fn main() {
+    let mut is_complete:bool = true;
+    let mut input: String = String::new();
     loop {
-        print!("$ ");
-        io::stdout().flush().unwrap();
-
-        // let mut command_buf: String = String::new();
-        let mut command: String = String::new();
-        io::stdin().read_line(&mut command).unwrap();
-        let index_result: Option<usize> = command.trim().find(" ");
-        let index: usize;
-        match index_result {
-            Option::None => index = command.len(),
-            Option::Some(num) => {
-                index = num;
-            }
-        }
+        let mut results: Vec<String> = Vec::new();
         let mut args: Vec<String> = Vec::new();
-        
-        match command.trim() {
-            "" => print!("\n"),
-            "exit" => break,
-            "echo" => echo_handler(&args),
-            "type" => type_handler(&args),
-            "pwd" => pwd_handler(&args, &command),
-            "cd" => cd_handler(&args, &command),
-            _ => general_handler(&args, &command),
+        let mut command: String = String::new();
+
+        if is_complete {
+            input.clear();
+            print!("$ ");
+        }else{
+            print!("> ");
+        }
+        io::stdout().flush().unwrap();
+        io::stdin().read_line(&mut input).unwrap();
+
+        if input.is_empty() || input == "\r\n" {
+            continue;
+        }else{
+            (is_complete, results) = input_parser(&input);    
+            command = results[0].clone();
+            args.extend(results[1..].to_vec());
+
+            if is_complete {
+                match command.trim() {
+                    "" => print!(""),
+                    "exit" => break,
+                    "echo" => echo_handler(&args),
+                    "type" => type_handler(&args),
+                    "pwd" => pwd_handler(&args, &command),
+                    "cd" => cd_handler(&args, &command),
+                     _ => general_handler(&args, &command),
+                }
+            }
         }
     }
 }
@@ -114,4 +123,104 @@ fn general_handler(args: &Vec<String>, command: &str) {
         println!("{}: command not found", command.trim());
     }
     return;
+}
+
+fn input_parser(input: &str) ->(bool, Vec<String>) {
+    let mut in_double_quotes: bool = false; //true
+    let mut in_single_quotes: bool = false;
+    let mut is_complete: bool = true;
+    let mut is_escaped: bool = false;
+
+    let mut current_argument: String = String::new();
+    let mut arguments:Vec<String> = Vec::new();
+
+    let mut current_character = input.chars().peekable();
+
+    let push_current_char = |current_argument: &mut String, arguments: &mut Vec<String>| {
+        if !current_argument.is_empty(){
+            arguments.push(current_argument.clone());
+        }
+        current_argument.clear();
+
+    };
+    
+    while let Some(character) = current_character.next() {
+
+        if is_escaped {
+            current_argument.push(character);
+            is_escaped = false;
+            continue;
+        }
+        match character {
+            '\\' =>{
+                if in_single_quotes {
+                    current_argument.push(character);
+                    continue;
+                }else if in_double_quotes{
+                    if let Some(&next_character) = current_character.peek() {
+                        if matches!(next_character,  '\\' | '"' | '$' | '`') {
+                            current_character.next();
+                            if next_character != '\n' {
+                                current_argument.push(next_character);
+                            }
+                        }else {
+                            current_argument.push(character);   
+                        }
+                    }else{
+                        current_argument.push(character);
+                        continue;
+                    }
+                } else{
+                    is_escaped =true;
+                    continue;
+                }
+                
+            },
+            '\'' =>{
+                if in_double_quotes{
+                    current_argument.push(character);
+                    continue;
+                } else {
+                    in_single_quotes = !in_single_quotes;
+                    is_complete = !is_complete;
+                    continue;
+                } 
+            },
+
+            '\"' =>{
+                if in_single_quotes{
+                    current_argument.push(character);
+                    continue;
+                } else {
+                    in_double_quotes = !in_double_quotes;
+                    is_complete = !is_complete;
+                    continue;
+                }
+
+            },
+
+            c if c.is_whitespace() =>{
+                if in_double_quotes || in_single_quotes {
+                    current_argument.push(character);
+                    continue;
+                } else {
+                    if !current_argument.is_empty(){
+                        push_current_char(&mut current_argument, &mut arguments);
+                        continue;
+                    }
+                }
+            },
+
+            _ =>{
+                current_argument.push(character);
+            }
+        }
+    }
+
+    // final check
+    if !current_argument.is_empty() {
+        push_current_char(&mut current_argument, &mut arguments);
+    }
+
+    return (is_complete, arguments);
 }
