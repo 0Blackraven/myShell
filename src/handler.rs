@@ -7,7 +7,7 @@ use std::env::{set_current_dir, home_dir};
 use std::process::Command;
 
 
-const SHELL_COMMANDS: [&str; 5] = ["echo", "type", "exit", "cd", "pwd"];
+pub const SHELL_COMMANDS: [&str; 5] = ["echo", "type", "exit", "cd", "pwd"];
 
 pub fn echo_handler(args: &Vec<String>, redirect: bool, redirects: Vec<(String, String)>) {
     if !redirect {
