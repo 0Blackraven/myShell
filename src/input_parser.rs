@@ -1,7 +1,7 @@
-pub fn input_parser(input: &str) -> (bool, Vec<String>, bool, Vec<(String, String)>) {
+pub fn input_parser(input: &str, complete: bool) -> (bool, Vec<String>, bool, Vec<(String, String)>) {
     let mut in_double_quotes: bool = false;
     let mut in_single_quotes: bool = false;
-    let mut is_complete: bool = true;
+    let mut is_complete: bool = complete;
     let mut is_escaped: bool = false;
     let mut redirect: bool = false;
 
@@ -84,23 +84,23 @@ pub fn input_parser(input: &str) -> (bool, Vec<String>, bool, Vec<(String, Strin
 
             _ => {
                 if character == '>' {
-                    // Check if the character currently in current_argument is '1' or '2'
+                    if in_double_quotes || in_single_quotes {
+                        current_argument.push(character);
+                        continue;
+                    }
                     let mut prefix = String::new();
                     if current_argument == "1" || current_argument == "2" {
                         prefix = current_argument.clone();
                         current_argument.clear();
                     }
 
-                    // Push whatever was before the prefix into arguments
                     if !current_argument.is_empty() {
                         push_current_char(&mut current_argument, &mut arguments);
                     }
 
-                    // Start building the redirection operator
                     current_argument = prefix;
-                    current_argument.push(character); // Add the '>'
+                    current_argument.push(character);
 
-                    // Peek for the second '>'
                     while let Some(&next_char) = current_character.peek() {
                         if next_char == '>' {
                             current_argument.push(current_character.next().unwrap());
@@ -156,6 +156,6 @@ pub fn input_parser(input: &str) -> (bool, Vec<String>, bool, Vec<(String, Strin
     if !redirects.is_empty() {
         redirect = true;
     }
-
+    // println!("complete: {}, arguments: {:#?}, redirect: {}, redirects: {:#?}", is_complete,arguments,redirect,redirects);
     return (is_complete, arguments, redirect, redirects);
 }
