@@ -8,6 +8,8 @@ use rustyline::Config;
 use rustyline::completion::Pair;
 use rustyline::error::ReadlineError;
 use rustyline::{Editor, completion::Completer};
+use rustyline::history::{History, FileHistory};
+use std::str::FromStr;
 
 mod input_parser;
 use input_parser::input_parser;
@@ -15,7 +17,7 @@ use input_parser::input_parser;
 mod handler;
 use handler::{redirect_handler, echo_handler, type_handler, cd_handler, general_handler, pwd_handler, SHELL_COMMANDS};
 
-struct MyHelper {
+pub struct MyHelper {
     completions: Vec<String>
 }
 
@@ -173,17 +175,22 @@ fn main() {
                         }
                         match command.trim() {
                             "" => print!(""),
-                            "exit" => break,
+                            "exit" => {
+                                let _ = readline.clear_history();
+                                break;
+                            },
                             "echo" => echo_handler(&args, redirect, redirects),
                             "type" => type_handler(&args, redirect, redirects),
                             "pwd" => pwd_handler(&args, &command, redirect, redirects),
                             "cd" => cd_handler(&args, &command),
+                            "history" => history_handler(&readline, &args),
                             _ => general_handler(&args, &command, redirect, redirects),
                         }
                     }
                 }
             }
             Err(ReadlineError::Interrupted) => {
+                let _ = readline.clear_history();
                 println!("^C");
                 break;
             }
@@ -204,5 +211,35 @@ fn main() {
         Err(e) => {
             println!("Error in making history file : {}", e);
         }
+    }
+}
+
+
+fn history_handler (readline: &Editor<MyHelper, FileHistory>, args: &Vec<String>) {
+    if args.len() == 0 {
+        for (i, entry) in readline.history().iter().enumerate(){
+            println!("{} {}", i + 1, entry);
+        }
+        return;
+    }
+    if args.len() > 1 {
+        println!("Too many arguments provided");
+        return;
+    }
+    let limit_result :Result<usize,<usize as FromStr>::Err> = args[0].parse();
+    match limit_result {
+        Ok(limit) => {
+            let lenght = readline.history().len();
+            let start_index = lenght - limit;
+            
+            for (i, entry) in readline.history().iter().enumerate().skip(start_index){
+                println!("    {} {}", i + 1, entry);
+            }
+            return;
+        }
+    Err(_) => {
+        println!("{}: provide correct arguments for command", args[0]);
+        return;
+    }
     }
 }

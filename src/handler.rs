@@ -6,7 +6,6 @@ use std::process::Stdio;
 use std::env::{set_current_dir, home_dir};
 use std::process::Command;
 
-
 pub const SHELL_COMMANDS: [&str; 5] = ["echo", "type", "exit", "cd", "pwd"];
 
 pub fn echo_handler(args: &Vec<String>, redirect: bool, redirects: Vec<(String, String)>) {
@@ -343,6 +342,7 @@ pub fn general_handler(
 }
 
 pub fn redirect_handler(redirects: Vec<(String, String)>) {
+
     for redirect in redirects {
         let (redirect_loaction, redirect_type) = redirect;
         let path = Path::new(&redirect_loaction);
@@ -370,3 +370,4 @@ pub fn redirect_handler(redirects: Vec<(String, String)>) {
         }
     }
 }
+
