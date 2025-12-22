@@ -1,7 +1,7 @@
-pub fn input_parser(input: &str, complete: bool) -> (bool, Vec<String>, bool, Vec<(String, String)>) {
+pub fn input_parser(input: &str) -> (bool, Vec<String>, bool, Vec<(String, String)>) {
     let mut in_double_quotes: bool = false;
     let mut in_single_quotes: bool = false;
-    let mut is_complete: bool = complete;
+    let mut is_complete: bool = true;
     let mut is_escaped: bool = false;
     let mut redirect: bool = false;
 
