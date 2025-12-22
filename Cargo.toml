@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.100"
+is_executable = "1.0.5"
 
 pathsearch = "0.2.0"
 rustyline = "17.0.2"
