@@ -1,4 +1,4 @@
-use std::fs;
+use std::{env, fs};
 #[allow(unused_imports)]
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -10,6 +10,7 @@ use rustyline::error::ReadlineError;
 use rustyline::{Editor, completion::Completer};
 use rustyline::history::{History, FileHistory};
 use std::str::FromStr;
+use std::fs::OpenOptions;
 
 mod input_parser;
 use input_parser::input_parser;
@@ -123,7 +124,10 @@ fn main() {
     let mut complete: bool = true;
     let mut readline: Editor<MyHelper, _>;
     let mut my_helper = MyHelper::default();
-    let config = Config::builder().completion_type(rustyline::CompletionType::List).build();
+    let mut last_entry: usize = 0;
+    let config = Config::builder()
+        .completion_type(rustyline::CompletionType::List)
+        .build();
     let readline_result: Result<Editor<MyHelper, rustyline::history::FileHistory>, ReadlineError> =
         Editor::with_config(config);
     match readline_result {
@@ -135,17 +139,26 @@ fn main() {
             return;
         }
     }
+
     if let Ok(path_var) = std::env::var("PATH") {
         let paths = std::env::split_paths(&path_var);
-        
+
         for path in paths {
             my_helper.add_path_completions(path);
         }
     }
-    
+
     readline.set_helper(Some(my_helper));
-    if readline.load_history("history.txt").is_err() {
-        println!("No history present");
+    if let Some(location) = env::var_os("HISTFILE") {
+        let path = PathBuf::from(location);
+
+        if let Ok(contents) = std::fs::read_to_string(&path) {
+            for line in contents.lines() {
+                let _ = readline.add_history_entry(line);
+            }
+
+            last_entry = readline.history().len();
+        }
     }
     loop {
         let mut args: Vec<String> = Vec::new();
@@ -163,7 +176,8 @@ fn main() {
                     println!("line is empty");
                     continue;
                 } else {
-                    let (is_complete, results, redirect, redirects) = input_parser(&line);
+                    let (is_complete, results, redirect, redirects, file_location, file_option) =
+                        input_parser(&line);
                     complete = is_complete;
 
                     let command = results[0].clone();
@@ -176,14 +190,20 @@ fn main() {
                         match command.trim() {
                             "" => print!(""),
                             "exit" => {
-                                let _ = readline.clear_history();
+                                append_history_on_exit(&mut readline, &mut last_entry);
                                 break;
-                            },
+                            }
                             "echo" => echo_handler(&args, redirect, redirects),
                             "type" => type_handler(&args, redirect, redirects),
                             "pwd" => pwd_handler(&args, &command, redirect, redirects),
                             "cd" => cd_handler(&args, &command),
-                            "history" => history_handler(&readline, &args),
+                            "history" => history_handler(
+                                &mut readline,
+                                &args,
+                                &file_option,
+                                &file_location,
+                                &mut last_entry,
+                            ),
                             _ => general_handler(&args, &command, redirect, redirects),
                         }
                     }
@@ -215,31 +235,120 @@ fn main() {
 }
 
 
-fn history_handler (readline: &Editor<MyHelper, FileHistory>, args: &Vec<String>) {
-    if args.len() == 0 {
-        for (i, entry) in readline.history().iter().enumerate(){
-            println!("{} {}", i + 1, entry);
-        }
-        return;
-    }
-    if args.len() > 1 {
-        println!("Too many arguments provided");
-        return;
-    }
-    let limit_result :Result<usize,<usize as FromStr>::Err> = args[0].parse();
-    match limit_result {
-        Ok(limit) => {
-            let lenght = readline.history().len();
-            let start_index = lenght - limit;
-            
-            for (i, entry) in readline.history().iter().enumerate().skip(start_index){
-                println!("    {} {}", i + 1, entry);
+fn history_handler(
+    readline: &mut Editor<MyHelper, FileHistory>,
+    args: &Vec<String>,
+    file_option: &String,
+    file_location: &String,
+    last_entry: &mut usize,
+) {
+    if file_option.is_empty() && file_location.is_empty() {
+        if args.len() == 0 {
+            for (i, entry) in readline.history().iter().enumerate() {
+                println!("    {}  {}", i + 1, entry);
             }
             return;
         }
-    Err(_) => {
-        println!("{}: provide correct arguments for command", args[0]);
-        return;
+        if args.len() > 1 {
+            println!("Too many arguments provided");
+            return;
+        }
+        let limit_result: Result<usize, <usize as FromStr>::Err> = args[0].parse();
+        match limit_result {
+            Ok(limit) => {
+                let lenght = readline.history().len();
+                let start_index = lenght.saturating_sub(limit);
+
+                for (i, entry) in readline.history().iter().enumerate().skip(start_index) {
+                    println!("    {}  {}", i + 1, entry);
+                }
+                return;
+            }
+            Err(_) => {
+                println!("{}: provide correct arguments for command", args[0]);
+                return;
+            }
+        }
+    } else {
+        // println!("{}   {}", file_location,file_option);
+        match file_option.trim() {
+            "read" => {
+                let result_file = OpenOptions::new().read(true).open(file_location);
+                match result_file {
+                    Ok(_) => {
+                        let result = readline.load_history(file_location);
+                        match result {
+                            Ok(_) => {}
+                            Err(e) => {
+                                println!("Sorry could not load history from file {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("Sorry erorred out {}", e);
+                        return;
+                    }
+                }
+            }
+            "write" => {
+                let result_file = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .truncate(true)
+                    .create(true)
+                    .open(file_location);
+                match result_file {
+                    Ok(mut file) => {
+                        for entry in readline.history().iter() {
+                            let _ = writeln!(file, "{}", entry);
+                        }
+                    }
+                    Err(e) => {
+                        println!("Sorry could not load file {}", e);
+                    }
+                }
+            }
+
+            "append" => {
+                let result_file = OpenOptions::new()
+                    .read(true)
+                    .append(true)
+                    .write(true)
+                    .create(true)
+                    .open(file_location);
+                match result_file {
+                    Ok(mut file) => {
+                        for entry in readline.history().iter().skip(*last_entry) {
+                            let _ = writeln!(file, "{}", entry);
+                        }
+                        *last_entry = readline.history().len();
+                    }
+                    Err(e) => {
+                        println!("Sorry could not append history from file {}", e);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
+}
+
+fn append_history_on_exit (readline: &mut Editor<MyHelper, FileHistory> , last_entry: &mut usize) {
+    if let Some(location) = env::var_os("HISTFILE") {
+        let path = PathBuf::from(location);
+
+        let file_result = OpenOptions::new().read(true).write(true).append(true).open(path);
+        match file_result {
+            Ok(mut file) => {
+                for command in readline.history().iter().skip(*last_entry) {
+                    let _ = writeln!(file, "{}", command);
+                }
+
+                *last_entry = readline.history().len();
+            }
+            Err(_) => {
+                println!("Sorry could not save ur cmd history")
+            }
+        }
     }
 }

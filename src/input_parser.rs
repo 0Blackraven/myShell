@@ -1,9 +1,21 @@
-pub fn input_parser(input: &str) -> (bool, Vec<String>, bool, Vec<(String, String)>) {
+pub fn input_parser(
+    input: &str,
+) -> (
+    bool,
+    Vec<String>,
+    bool,
+    Vec<(String, String)>,
+    String,
+    String,
+) {
     let mut in_double_quotes: bool = false;
     let mut in_single_quotes: bool = false;
     let mut is_complete: bool = true;
     let mut is_escaped: bool = false;
+    let mut is_path: bool = false;
     let mut redirect: bool = false;
+    let mut file_option: String = String::new();
+    let mut file_location: String = String::new();
 
     let mut current_argument: String = String::new();
     let mut arguments: Vec<String> = Vec::new();
@@ -25,6 +37,16 @@ pub fn input_parser(input: &str) -> (bool, Vec<String>, bool, Vec<(String, Strin
             continue;
         }
         match character {
+            '<' => {
+                if in_double_quotes || in_single_quotes {
+                    current_argument.push(character);
+                } else {
+                    if !current_argument.is_empty() {
+                        push_current_char(&mut current_argument, &mut arguments);
+                    }
+                    is_path = true;
+                }
+            }
             '\\' => {
                 if in_single_quotes {
                     current_argument.push(character);
@@ -84,6 +106,10 @@ pub fn input_parser(input: &str) -> (bool, Vec<String>, bool, Vec<(String, Strin
 
             _ => {
                 if character == '>' {
+                    if is_path {
+                        continue;
+                    }
+
                     if in_double_quotes || in_single_quotes {
                         current_argument.push(character);
                         continue;
@@ -111,6 +137,28 @@ pub fn input_parser(input: &str) -> (bool, Vec<String>, bool, Vec<(String, Strin
 
                     push_current_char(&mut current_argument, &mut arguments);
                     continue;
+                }
+
+                if character == '-' {
+                    if in_double_quotes || in_single_quotes {
+                        current_argument.push(character);
+                        continue;
+                    }
+                    if let Some(&next_char) = current_character.peek() {
+                        if matches!(next_char, 'r' | 'w' | 'a') {
+                            if !current_argument.is_empty() {
+                                push_current_char(&mut current_argument, &mut arguments);
+                            }
+
+                            current_character.next();
+
+                            current_argument.push('-');
+                            current_argument.push(next_char);
+
+                            push_current_char(&mut current_argument, &mut arguments);
+                            continue;
+                        }
+                    }
                 }
                 current_argument.push(character);
             }
@@ -148,6 +196,26 @@ pub fn input_parser(input: &str) -> (bool, Vec<String>, bool, Vec<(String, Strin
                     _ => {}
                 }
             }
+        } else if matches!(arguments[i].trim(), "-r" | "-w" | "-a") {
+            let result = arguments.remove(i);
+            if i < arguments.len() {
+                let file_result = arguments.remove(i);
+                match result.trim() {
+                    "-a" => {
+                        file_option = "append".into();
+                        file_location = file_result.into();
+                    }
+                    "-r" => {
+                        file_option = "read".into();
+                        file_location = file_result.into();
+                    }
+                    "-w" => {
+                        file_option = "write".into();
+                        file_location = file_result.into();
+                    }
+                    _ => {}
+                }
+            }
         } else {
             i += 1;
         }
@@ -156,6 +224,12 @@ pub fn input_parser(input: &str) -> (bool, Vec<String>, bool, Vec<(String, Strin
     if !redirects.is_empty() {
         redirect = true;
     }
-    // println!("complete: {}, arguments: {:#?}, redirect: {}, redirects: {:#?}", is_complete,arguments,redirect,redirects);
-    return (is_complete, arguments, redirect, redirects);
+    return (
+        is_complete,
+        arguments,
+        redirect,
+        redirects,
+        file_location,
+        file_option,
+    );
 }
