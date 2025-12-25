@@ -2,7 +2,7 @@ pub fn input_parser(
     input: &str,
 ) -> (
     bool,
-    Vec<String>,
+    Vec<Vec<String>>,
     bool,
     Vec<(String, String)>,
     String,
@@ -19,6 +19,7 @@ pub fn input_parser(
 
     let mut current_argument: String = String::new();
     let mut arguments: Vec<String> = Vec::new();
+    let mut arguments_list: Vec<Vec<String>> = Vec::new();
     let mut redirects: Vec<(String, String)> = Vec::new();
 
     let mut current_character = input.chars().peekable();
@@ -30,6 +31,13 @@ pub fn input_parser(
         current_argument.clear();
     };
 
+    let _push_current_argument = |argument: &mut Vec<String> , argument_list: &mut Vec<Vec<String>> | {
+        if !argument.is_empty() {
+            argument_list.push(argument.clone());
+        }
+        argument.clear();
+    };
+
     while let Some(character) = current_character.next() {
         if is_escaped {
             current_argument.push(character);
@@ -37,6 +45,25 @@ pub fn input_parser(
             continue;
         }
         match character {
+            '|' => {
+                if in_double_quotes || in_single_quotes || is_path {
+                    current_argument.push(character);
+                    continue;
+                }
+
+                if let Some(&_next_char) = current_character.peek() {
+                    if _next_char == '|' {
+                        // || means logical OR for now treating as regular character
+                        current_argument.push(character);
+                        continue;
+                    }
+                }
+
+                if !current_argument.is_empty() {
+                    push_current_char(&mut current_argument, &mut arguments);
+                }
+                _push_current_argument(&mut arguments, &mut arguments_list);
+            }
             '<' => {
                 if in_double_quotes || in_single_quotes {
                     current_argument.push(character);
@@ -169,55 +196,59 @@ pub fn input_parser(
     if !current_argument.is_empty() {
         push_current_char(&mut current_argument, &mut arguments);
     }
+    
+    _push_current_argument(&mut arguments, &mut arguments_list);
 
-    let mut i = 0;
-    while i < arguments.len() {
-        if matches!(
-            arguments[i].trim(),
-            ">" | "1>" | "2>" | ">>" | "1>>" | "2>>"
-        ) {
-            let redirect_type = arguments.remove(i);
-            if i < arguments.len() {
-                let redirect_location = arguments.remove(i);
+    if let Some(last_command) = arguments_list.last_mut() {
+        let mut i = 0;
+        while i < last_command.len() {
+            if matches!(
+                last_command[i].trim(),
+                ">" | "1>" | "2>" | ">>" | "1>>" | "2>>"
+            ) {
+                let redirect_type = last_command.remove(i);
+                if i < last_command.len() {
+                    let redirect_location = last_command.remove(i);
 
-                match redirect_type.trim() {
-                    "1>" | ">" => {
-                        redirects.push((redirect_location, "replace_output".to_string()));
+                    match redirect_type.trim() {
+                        "1>" | ">" => {
+                            redirects.push((redirect_location, "replace_output".to_string()));
+                        }
+                        "1>>" | ">>" => {
+                            redirects.push((redirect_location, "append_output".to_string()));
+                        }
+                        "2>" => {
+                            redirects.push((redirect_location, "replace_error".to_string()));
+                        }
+                        "2>>" => {
+                            redirects.push((redirect_location, "append_error".to_string()));
+                        }
+                        _ => {}
                     }
-                    "1>>" | ">>" => {
-                        redirects.push((redirect_location, "append_output".to_string()));
-                    }
-                    "2>" => {
-                        redirects.push((redirect_location, "replace_error".to_string()));
-                    }
-                    "2>>" => {
-                        redirects.push((redirect_location, "append_error".to_string()));
-                    }
-                    _ => {}
                 }
-            }
-        } else if matches!(arguments[i].trim(), "-r" | "-w" | "-a") {
-            let result = arguments.remove(i);
-            if i < arguments.len() {
-                let file_result = arguments.remove(i);
-                match result.trim() {
-                    "-a" => {
-                        file_option = "append".into();
-                        file_location = file_result.into();
+            } else if matches!(last_command[i].trim(), "-r" | "-w" | "-a") {
+                let result = last_command.remove(i);
+                if i < last_command.len() {
+                    let file_result = last_command.remove(i);
+                    match result.trim() {
+                        "-a" => {
+                            file_option = "append".into();
+                            file_location = file_result.into();
+                        }
+                        "-r" => {
+                            file_option = "read".into();
+                            file_location = file_result.into();
+                        }
+                        "-w" => {
+                            file_option = "write".into();
+                            file_location = file_result.into();
+                        }
+                        _ => {}
                     }
-                    "-r" => {
-                        file_option = "read".into();
-                        file_location = file_result.into();
-                    }
-                    "-w" => {
-                        file_option = "write".into();
-                        file_location = file_result.into();
-                    }
-                    _ => {}
                 }
+            } else {
+                i += 1;
             }
-        } else {
-            i += 1;
         }
     }
 
@@ -226,7 +257,7 @@ pub fn input_parser(
     }
     return (
         is_complete,
-        arguments,
+        arguments_list,
         redirect,
         redirects,
         file_location,

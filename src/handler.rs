@@ -4,7 +4,7 @@ use std::path::{PathBuf, Path};
 use std::io::{self, Write};
 use std::process::Stdio;
 use std::env::{set_current_dir, home_dir};
-use std::process::Command;
+use std::process::{Command,Child};
 
 pub const SHELL_COMMANDS: [&str; 5] = ["echo", "type", "exit", "cd", "pwd"];
 
@@ -371,3 +371,156 @@ pub fn redirect_handler(redirects: Vec<(String, String)>) {
     }
 }
 
+pub fn execute_pipeline(all_commands: &Vec<Vec<String>>, redirect: bool, redirects: Vec<(String, String)>, last_entry: &mut usize) {
+    use std::process::{Command, Stdio};
+    use std::io::Write;
+    
+    if all_commands.is_empty() {
+        return;
+    }
+    
+    let mut processes: Vec<Child> = Vec::new();
+    let mut prev_stdout: Option<Stdio> = None;
+    let mut builtin_output: Option<Vec<u8>> = None;
+    
+    for (i, cmd_args) in all_commands.iter().enumerate() {
+        if cmd_args.is_empty() {
+            continue;
+        }
+        
+        let command = &cmd_args[0];
+        let args = &cmd_args[1..];
+        let is_last = i == all_commands.len() - 1;
+
+        if SHELL_COMMANDS.contains(&command.as_str()) {
+            let mut output = Vec::new();
+
+            match command.trim() {
+                "echo" => {
+                    let mut line = String::new();
+                    for arg in args {
+                        line.push_str(arg);
+                        line.push(' ');
+                    }
+                    if !line.is_empty() {
+                        line.pop();
+                    }
+                    line.push('\n');
+                    output = line.into_bytes();
+                }
+                "pwd" => {
+                    if let Ok(path) = std::env::current_dir() {
+                        let line = format!("{}\n", path.display());
+                        output = line.into_bytes();
+                    }
+                }
+                "type" => {
+                    if !args.is_empty() {
+                        let arg = &args[0];
+                        let line = if SHELL_COMMANDS.contains(&arg.as_str()) {
+                            format!("{} is a shell builtin\n", arg)
+                        } else if let Some(path) = find_executable_in_path(&arg) {
+                            format!("{} is {}\n", arg, path.display())
+                        } else {
+                            format!("{}: not found\n", arg)
+                        };
+                        output = line.into_bytes();
+                    }
+                }
+
+                // For 'cd' and 'exit', dont know how to handle in pipeline, so just skip for now 
+
+                "cd" | "exit" => {
+                    println!("{}: dont know how to handle in pipeline sorry", command);
+                    continue;
+                }
+                _ => {
+                    println!("{}: builtin command not supported in pipeline", command);
+                    continue;
+                }
+            }
+            
+            if is_last {
+
+                if redirect {
+                    if let Some((write_location, write_type)) = redirects.last() {
+                        if write_type.trim().contains("output") {
+                            let mut file = std::fs::OpenOptions::new()
+                                .create(true)
+                                .write(true)
+                                .truncate(!write_type.trim().contains("append"))
+                                .append(write_type.trim().contains("append"))
+                                .open(write_location)
+                                .unwrap();
+                            file.write_all(&output).unwrap();
+                        } else {
+                            print!("{}", String::from_utf8_lossy(&output));
+                        }
+                    }
+                } else {
+                    print!("{}", String::from_utf8_lossy(&output));
+                }
+            } else {
+
+                builtin_output = Some(output);
+            }
+            continue;
+        }
+
+        if let Some(_path) = find_executable_in_path(&command.trim()) {
+            let mut cmd = Command::new(command.trim());
+            cmd.args(args);
+
+            if let Some(prev_out) = prev_stdout.take() {
+                cmd.stdin(prev_out);
+            } else if let Some(builtin_out) = builtin_output.take() {
+                let mut child = cmd.stdin(Stdio::piped()).spawn().unwrap();
+                if let Some(stdin) = child.stdin.take() {
+                    let mut stdin = stdin;
+                    stdin.write_all(&builtin_out).unwrap();
+                    drop(stdin);
+                }
+                processes.push(child);
+                continue;
+            }
+
+            if !is_last {
+                cmd.stdout(Stdio::piped());
+            } else if redirect {
+                if let Some((write_location, write_type)) = redirects.last() {
+                    if write_type.trim().contains("output") {
+                        let file = std::fs::OpenOptions::new()
+                            .create(true)
+                            .write(true)
+                            .truncate(!write_type.trim().contains("append"))
+                            .append(write_type.trim().contains("append"))
+                            .open(write_location);
+                        if let Ok(f) = file {
+                            cmd.stdout(f);
+                        }
+                    }
+                }
+            }
+            
+            match cmd.spawn() {
+                Ok(mut child) => {
+                    if !is_last {
+                        prev_stdout = child.stdout.take().map(Stdio::from);
+                    }
+                    processes.push(child);
+                }
+                Err(e) => {
+                    println!("Failed to execute {}: {}", command, e);
+                    return;
+                }
+            }
+        } else {
+            println!("{}: command not found", command.trim());
+            return;
+        }
+    }
+
+    for mut process in processes {
+        let _ = process.wait();
+    }
+}

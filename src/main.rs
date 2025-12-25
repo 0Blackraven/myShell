@@ -16,7 +16,7 @@ mod input_parser;
 use input_parser::input_parser;
 
 mod handler;
-use handler::{redirect_handler, echo_handler, type_handler, cd_handler, general_handler, pwd_handler, SHELL_COMMANDS};
+use handler::{redirect_handler, echo_handler, type_handler, cd_handler, general_handler, pwd_handler, execute_pipeline,  SHELL_COMMANDS};
 
 pub struct MyHelper {
     completions: Vec<String>
@@ -161,7 +161,7 @@ fn main() {
         }
     }
     loop {
-        let mut args: Vec<String> = Vec::new();
+        let mut _args: Vec<String> = Vec::new();
         let input = readline.readline(if complete { "$ " } else { "> " });
         match input {
             Ok(line) => {
@@ -180,31 +180,39 @@ fn main() {
                         input_parser(&line);
                     complete = is_complete;
 
-                    let command = results[0].clone();
-                    args.extend(results[1..].to_vec());
+                    // CHANGED: Updated to handle pipeline commands
+                    if complete && !results.is_empty() {
+                        // ADDED: Handle pipeline execution
+                        if results.len() > 1 {
+                            execute_pipeline(&results, redirect, redirects, &mut last_entry);
+                        } else if let Some(command_args) = results.first() {
+                            if !command_args.is_empty() {
+                                let command = command_args[0].clone();
+                                _args.extend(command_args[1..].to_vec());
 
-                    if complete {
-                        if redirect {
-                            redirect_handler(redirects.clone());
-                        }
-                        match command.trim() {
-                            "" => print!(""),
-                            "exit" => {
-                                append_history_on_exit(&mut readline, &mut last_entry);
-                                break;
+                                if redirect {
+                                    redirect_handler(redirects.clone());
+                                }
+                                match command.trim() {
+                                    "" => print!(""),
+                                    "exit" => {
+                                        append_history_on_exit(&mut readline, &mut last_entry);
+                                        break;
+                                    }
+                                    "echo" => echo_handler(&_args, redirect, redirects),
+                                    "type" => type_handler(&_args, redirect, redirects),
+                                    "pwd" => pwd_handler(&_args, &command, redirect, redirects),
+                                    "cd" => cd_handler(&_args, &command),
+                                    "history" => history_handler(
+                                        &mut readline,
+                                        &_args,
+                                        &file_option,
+                                        &file_location,
+                                        &mut last_entry,
+                                    ),
+                                    _ => general_handler(&_args, &command, redirect, redirects),
+                                }
                             }
-                            "echo" => echo_handler(&args, redirect, redirects),
-                            "type" => type_handler(&args, redirect, redirects),
-                            "pwd" => pwd_handler(&args, &command, redirect, redirects),
-                            "cd" => cd_handler(&args, &command),
-                            "history" => history_handler(
-                                &mut readline,
-                                &args,
-                                &file_option,
-                                &file_location,
-                                &mut last_entry,
-                            ),
-                            _ => general_handler(&args, &command, redirect, redirects),
                         }
                     }
                 }
@@ -222,14 +230,6 @@ fn main() {
                 println!("Error: {:?}", err);
                 break;
             }
-        }
-    }
-
-    let history = readline.save_history("history.txt");
-    match history {
-        Ok(_) => {}
-        Err(e) => {
-            println!("Error in making history file : {}", e);
         }
     }
 }
