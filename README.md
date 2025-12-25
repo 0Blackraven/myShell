@@ -57,3 +57,5 @@ The following are still not supported
   - Constructs like `$(command)` or `` `command` `` are not supported
 
 will implement them ass soon ass possible 
+
+Yes this is written by AI i am too lazy sorry
