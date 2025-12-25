@@ -106,14 +106,14 @@ impl Completer for MyHelper {
 
 impl rustyline::hint::Hinter for MyHelper {
     type Hint = String;
-    fn hint(&self, _: &str, _: usize, _: &rustyline::Context<'_>) -> Option<Self::Hint> {
-        // if !line.is_empty() {
-        //     if let Ok((_, c)) = self.complete(line, pos, ctx) {
-        //         if let Some(e) = c.get(0) {
-        //             return Some(e[pos..].to_string());
-        //         }
-        //     }
-        // }
+    fn hint(&self, line: &str, pos: usize, ctx: &rustyline::Context<'_>) -> Option<Self::Hint> {
+        if !line.is_empty() {
+            if let Ok((_, c)) = self.complete(line, pos, ctx) {
+                if let Some(e) = c.get(0) {
+                    return Some(e.display[pos..].to_string());
+                }
+            }
+        }
         None
     }
 }
@@ -180,9 +180,8 @@ fn main() {
                         input_parser(&line);
                     complete = is_complete;
 
-                    // CHANGED: Updated to handle pipeline commands
                     if complete && !results.is_empty() {
-                        // ADDED: Handle pipeline execution
+
                         if results.len() > 1 {
                             execute_pipeline(&results, redirect, redirects, &mut last_entry);
                         } else if let Some(command_args) = results.first() {
